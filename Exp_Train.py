@@ -85,7 +85,7 @@ def predict():
     test_ids = [] 
     test_pred = []
 
-    model = torch.load(os.path.join(output_folder, "model.ckpt")).to(device)
+    model = torch.load(os.path.join(output_folder, "model.ckpt"), weights_only=False).to(device)
     model.eval()
     with torch.no_grad():
         for data in tqdm(data_loader_test, dynamic_ncols=True): 
@@ -133,7 +133,11 @@ if __name__ == '__main__':
 
     #-----------------------------------------------------begin-----------------------------------------------------#
     # 可修改选择的模型以及传入的参数
-    model = BiLSTM_model(vocab_size=vocab_size, ntoken=max_token_per_sent, d_emb=embedding_dim, num_classes=num_classes).to(device)                            
+    # 方案1: BiLSTM模型
+    model = BiLSTM_model(vocab_size=vocab_size, ntoken=max_token_per_sent, d_emb=embedding_dim, num_classes=num_classes).to(device)
+    
+    # 方案2: Transformer模型
+    # model = Transformer_model(vocab_size=vocab_size, ntoken=max_token_per_sent, d_emb=300, nhead=6, d_hid=1024, nlayers=4, num_classes=num_classes).to(device)
     #------------------------------------------------------end------------------------------------------------------#
     
     # 设置损失函数
