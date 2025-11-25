@@ -171,8 +171,8 @@ if __name__ == '__main__':
     embedding_dim = 300     # 每个词向量的维度（与预训练词向量维度匹配）
     max_token_per_sent = 50 # 每个句子预设的最大 token 数
     batch_size = 32
-    num_epochs = 20         # 增加训练轮数，配合学习率衰减
-    lr = 1e-3               # 初始学习率
+    num_epochs = 12         # 增加训练轮数，配合学习率衰减 12 for BiLstm; 20 for transformer
+    lr = 5e-3               # 初始学习率 5e-3 for BiLstm; 1e-3 for transformer
     #------------------------------------------------------end------------------------------------------------------#
 
     # 检查是否存在预处理缓存，若存在则直接加载，否则重新处理并保存
@@ -197,10 +197,10 @@ if __name__ == '__main__':
     #-----------------------------------------------------begin-----------------------------------------------------#
     # 可修改选择的模型以及传入的参数
     # 方案1: BiLSTM模型
-    #model = BiLSTM_model(vocab_size=vocab_size, ntoken=max_token_per_sent, d_emb=embedding_dim, d_hid=128, num_classes=num_classes, embedding_weight=embedding_weight).to(device)
+    model = BiLSTM_model(vocab_size=vocab_size, ntoken=max_token_per_sent, d_emb=embedding_dim, d_hid=128, num_classes=num_classes, embedding_weight=embedding_weight).to(device)
     
     # 方案2: Transformer模型
-    model = Transformer_model(vocab_size=vocab_size, ntoken=max_token_per_sent, d_emb=embedding_dim, nhead=6, d_hid=1024, nlayers=4, num_classes=num_classes, embedding_weight=embedding_weight).to(device)
+    #model = Transformer_model(vocab_size=vocab_size, ntoken=max_token_per_sent, d_emb=embedding_dim, nhead=6, d_hid=1024, nlayers=4, num_classes=num_classes, embedding_weight=embedding_weight).to(device)
     #------------------------------------------------------end------------------------------------------------------#
     
     # 设置损失函数
