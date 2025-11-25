@@ -3,6 +3,7 @@ import torch.nn as nn
 import time
 import json
 import os
+import matplotlib.pyplot as plt
 
 from tqdm import tqdm
 from torch.utils.data import  DataLoader
@@ -15,6 +16,13 @@ def train():
     进行训练
     '''
     max_valid_acc = 0
+    
+    # 记录训练历史
+    history = {
+        'train_loss': [],
+        'train_acc': [],
+        'valid_acc': []
+    }
     
     for epoch in range(num_epochs):
         model.train()
@@ -55,8 +63,50 @@ def train():
         if valid_acc > max_valid_acc:
             max_valid_acc = valid_acc
             torch.save(model, os.path.join(output_folder, "model.ckpt"))
+        
+        # 根据验证集准确率调整学习率
+        scheduler.step(valid_acc)
+
+        # 记录历史
+        history['train_loss'].append(train_loss)
+        history['train_acc'].append(train_acc)
+        history['valid_acc'].append(valid_acc)
 
         print(f"epoch: {epoch}, train loss: {train_loss:.4f}, train accuracy: {train_acc*100:.2f}%, valid accuracy: {valid_acc*100:.2f}%")
+    
+    return history
+
+
+def plot_history(history):
+    '''
+    绘制训练历史曲线
+    '''
+    epochs = range(1, len(history['train_loss']) + 1)
+    
+    # 绘制 Loss 曲线
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, history['train_loss'], 'b-', label='Train Loss')
+    plt.title('Training Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(output_folder, 'loss_curve.png'), dpi=150)
+    plt.show()
+    
+    # 绘制 Accuracy 曲线
+    plt.figure(figsize=(10, 6))
+    plt.plot(epochs, [acc * 100 for acc in history['train_acc']], 'b-', label='Train Accuracy')
+    plt.plot(epochs, [acc * 100 for acc in history['valid_acc']], 'r-', label='Valid Accuracy')
+    plt.title('Training and Validation Accuracy')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy (%)')
+    plt.legend()
+    plt.grid(True)
+    plt.savefig(os.path.join(output_folder, 'accuracy_curve.png'), dpi=150)
+    plt.show()
+    
+    print(f"Plots saved to {output_folder}")
 
 
 def valid():
@@ -121,8 +171,8 @@ if __name__ == '__main__':
     embedding_dim = 300     # 每个词向量的维度（与预训练词向量维度匹配）
     max_token_per_sent = 50 # 每个句子预设的最大 token 数
     batch_size = 32
-    num_epochs = 10
-    lr = 1e-3               # 提高学习率
+    num_epochs = 20         # 增加训练轮数，配合学习率衰减
+    lr = 1e-3               # 初始学习率
     #------------------------------------------------------end------------------------------------------------------#
 
     # 检查是否存在预处理缓存，若存在则直接加载，否则重新处理并保存
@@ -147,19 +197,24 @@ if __name__ == '__main__':
     #-----------------------------------------------------begin-----------------------------------------------------#
     # 可修改选择的模型以及传入的参数
     # 方案1: BiLSTM模型
-    model = BiLSTM_model(vocab_size=vocab_size, ntoken=max_token_per_sent, d_emb=embedding_dim, d_hid=128, num_classes=num_classes, embedding_weight=embedding_weight).to(device)
+    #model = BiLSTM_model(vocab_size=vocab_size, ntoken=max_token_per_sent, d_emb=embedding_dim, d_hid=128, num_classes=num_classes, embedding_weight=embedding_weight).to(device)
     
     # 方案2: Transformer模型
-    # model = Transformer_model(vocab_size=vocab_size, ntoken=max_token_per_sent, d_emb=embedding_dim, nhead=6, d_hid=1024, nlayers=4, num_classes=num_classes, embedding_weight=embedding_weight).to(device)
+    model = Transformer_model(vocab_size=vocab_size, ntoken=max_token_per_sent, d_emb=embedding_dim, nhead=6, d_hid=1024, nlayers=4, num_classes=num_classes, embedding_weight=embedding_weight).to(device)
     #------------------------------------------------------end------------------------------------------------------#
     
     # 设置损失函数
     loss_function = nn.CrossEntropyLoss()
     # 设置优化器                                       
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=5e-4)  
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=5e-4)
+    # 学习率调度器：验证集性能不提升时降低学习率
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=2)
 
     # 进行训练
-    train()
+    history = train()
+    
+    # 绘制训练曲线
+    plot_history(history)
 
     # 对测试集进行预测
     predict()

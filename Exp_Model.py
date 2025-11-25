@@ -42,15 +42,22 @@ class Transformer_model(nn.Module):
         #------------------------------------------------------end------------------------------------------------------#
 
     def forward(self, x):
+        # x: [batch_size, seq_len], token ids
+        padding_mask = (x == 0)  # [batch_size, seq_len], True for padding positions
+        
         x = self.embed(x)     
-        x = x.permute(1, 0, 2)          
+        x = x.permute(1, 0, 2)  # [seq_len, batch_size, d_emb]
         x = self.pos_encoder(x)
-        x = self.transformer_encoder(x)
-        x = x.permute(1, 0, 2)
+        x = self.transformer_encoder(x, src_key_padding_mask=padding_mask)  # 传入 padding mask
+        x = x.permute(1, 0, 2)  # [batch_size, seq_len, d_emb]
+        
         #-----------------------------------------------------begin-----------------------------------------------------#
         # 对 transformer_encoder 的隐藏层输出进行处理和选择，并完成分类
-        # 使用平均池化聚合所有时间步的信息
-        x = x.mean(dim=1)  # 平均池化，形状: [batch_size, d_emb]
+        # 使用平均池化聚合所有时间步的信息，忽略 padding 位置
+        mask = (~padding_mask).float().unsqueeze(-1)  # [batch_size, seq_len, 1]
+        x = x * mask
+        x = x.sum(dim=1) / mask.sum(dim=1).clamp(min=1)  # 平均池化，避免除零
+        
         x = self.dropout(x)
         x = self.classifier(x)  # 分类器输出，形状: [batch_size, num_classes]
 
@@ -77,12 +84,19 @@ class BiLSTM_model(nn.Module):
         #------------------------------------------------------end------------------------------------------------------#
 
     def forward(self, x):
-        x = self.embed(x)
-        x = self.lstm(x)[0]
+        # x: [batch_size, seq_len], token ids
+        mask = (x != 0).float()  # [batch_size, seq_len], 1 for real tokens, 0 for padding
+        
+        x = self.embed(x)  # [batch_size, seq_len, d_emb]
+        x, _ = self.lstm(x)  # [batch_size, seq_len, d_hid*2]
+        
         #-----------------------------------------------------begin-----------------------------------------------------#
         # 对 bilstm 的隐藏层输出进行处理和选择，并完成分类
-        # 使用最后一个时间步的隐藏状态进行分类
-        x = x[:, -1, :]  # 取最后一个时间步的输出，形状: [batch_size, d_hid*2]
+        # 使用平均池化，忽略 padding 位置
+        mask = mask.unsqueeze(-1)  # [batch_size, seq_len, 1]
+        x = x * mask  # 将 padding 位置的输出置零
+        x = x.sum(dim=1) / mask.sum(dim=1).clamp(min=1)  # 平均池化，避免除零
+        
         x = self.dropout(x)
         x = self.classifier(x)  # 分类器输出，形状: [batch_size, num_classes]
 
