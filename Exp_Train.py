@@ -53,6 +53,7 @@ def train():
         valid_acc = valid()
 
         if valid_acc > max_valid_acc:
+            max_valid_acc = valid_acc
             torch.save(model, os.path.join(output_folder, "model.ckpt"))
 
         print(f"epoch: {epoch}, train loss: {train_loss:.4f}, train accuracy: {train_acc*100:.2f}%, valid accuracy: {valid_acc*100:.2f}%")
@@ -110,6 +111,8 @@ def predict():
 if __name__ == '__main__':
     dataset_folder = './data/tnews_public'
     output_folder = './output'
+    embedding_path = './sgns.target.word-word.dynwin5.thr10.neg5.dim300.iter5'  # 预训练词向量路径
+    preprocessed_path = './output/preprocessed_data.pkl'  # 预处理数据缓存路径
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
@@ -117,12 +120,22 @@ if __name__ == '__main__':
     # 以下为超参数，可根据需要修改
     embedding_dim = 300     # 每个词向量的维度（与预训练词向量维度匹配）
     max_token_per_sent = 50 # 每个句子预设的最大 token 数
-    batch_size = 16
-    num_epochs = 5
-    lr = 1e-4
+    batch_size = 32
+    num_epochs = 10
+    lr = 1e-3               # 提高学习率
     #------------------------------------------------------end------------------------------------------------------#
 
-    dataset = Corpus(dataset_folder, max_token_per_sent)
+    # 检查是否存在预处理缓存，若存在则直接加载，否则重新处理并保存
+    os.makedirs(output_folder, exist_ok=True)
+    if os.path.exists(preprocessed_path):
+        dataset = Corpus.load_preprocessed(preprocessed_path)
+        embedding_weight = dataset.embedding_weight
+    else:
+        dataset = Corpus(dataset_folder, max_token_per_sent)
+        # 加载预训练词向量
+        embedding_weight = dataset.load_pretrained_embedding(embedding_path, embedding_dim)
+        # 保存预处理数据
+        dataset.save_preprocessed(preprocessed_path)
 
     vocab_size = len(dataset.dictionary.tkn2word)
     num_classes = len(dataset.dictionary.idx2label)  # 获取类别数量
@@ -134,10 +147,10 @@ if __name__ == '__main__':
     #-----------------------------------------------------begin-----------------------------------------------------#
     # 可修改选择的模型以及传入的参数
     # 方案1: BiLSTM模型
-    model = BiLSTM_model(vocab_size=vocab_size, ntoken=max_token_per_sent, d_emb=embedding_dim, num_classes=num_classes).to(device)
+    model = BiLSTM_model(vocab_size=vocab_size, ntoken=max_token_per_sent, d_emb=embedding_dim, d_hid=128, num_classes=num_classes, embedding_weight=embedding_weight).to(device)
     
     # 方案2: Transformer模型
-    # model = Transformer_model(vocab_size=vocab_size, ntoken=max_token_per_sent, d_emb=300, nhead=6, d_hid=1024, nlayers=4, num_classes=num_classes).to(device)
+    # model = Transformer_model(vocab_size=vocab_size, ntoken=max_token_per_sent, d_emb=embedding_dim, nhead=6, d_hid=1024, nlayers=4, num_classes=num_classes, embedding_weight=embedding_weight).to(device)
     #------------------------------------------------------end------------------------------------------------------#
     
     # 设置损失函数
