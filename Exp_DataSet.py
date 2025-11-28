@@ -4,7 +4,8 @@ import pickle
 import numpy as np
 import torch
 import jieba
-from torch.utils.data import TensorDataset
+from torch.utils.data import TensorDataset, Dataset
+from transformers import BertTokenizer
 
 class Dictionary(object):
     def __init__(self, path):
@@ -190,3 +191,138 @@ class Corpus(object):
             labels = torch.tensor(np.array(labels)).long()
             
         return TensorDataset(idss, labels)
+
+
+class BertDataset(Dataset):
+    """
+    BERT 专用数据集类，使用 BERT tokenizer 进行文本编码。
+    """
+    def __init__(self, data_path, tokenizer, max_length=128, test_mode=False, label2idx=None):
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.test_mode = test_mode
+        self.label2idx = label2idx
+        
+        self.sentences = []
+        self.labels = []
+        self.ids = []  # 用于测试集
+        
+        with open(data_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                one_data = json.loads(line)
+                self.sentences.append(one_data['sentence'])
+                
+                if test_mode:
+                    self.ids.append(one_data['id'])
+                    self.labels.append(-1)  # 占位
+                else:
+                    self.labels.append(self.label2idx[one_data['label']])
+    
+    def __len__(self):
+        return len(self.sentences)
+    
+    def __getitem__(self, idx):
+        sentence = self.sentences[idx]
+        
+        # 使用 BERT tokenizer 编码
+        encoding = self.tokenizer(
+            sentence,
+            add_special_tokens=True,
+            max_length=self.max_length,
+            padding='max_length',
+            truncation=True,
+            return_tensors='pt'
+        )
+        
+        input_ids = encoding['input_ids'].squeeze(0)
+        attention_mask = encoding['attention_mask'].squeeze(0)
+        token_type_ids = encoding['token_type_ids'].squeeze(0)
+        
+        if self.test_mode:
+            return input_ids, attention_mask, token_type_ids, self.ids[idx]
+        else:
+            return input_ids, attention_mask, token_type_ids, self.labels[idx]
+
+
+class BertCorpus:
+    """
+    BERT 专用语料库类，管理训练、验证和测试数据集。
+    """
+    def __init__(self, path, bert_model_name='bert-base-chinese', max_length=128):
+        self.max_length = max_length
+        
+        # 加载标签映射
+        self.label2idx = {}
+        self.idx2label = []
+        with open(os.path.join(path, 'labels.json'), 'r', encoding='utf-8') as f:
+            for line in f:
+                one_data = json.loads(line)
+                label, label_desc = one_data['label'], one_data['label_desc']
+                self.idx2label.append([label, label_desc])
+                self.label2idx[label] = len(self.idx2label) - 1
+        
+        # 加载 BERT tokenizer
+        print(f"Loading BERT tokenizer: {bert_model_name}")
+        self.tokenizer = BertTokenizer.from_pretrained(bert_model_name)
+        
+        # 创建数据集
+        print("Processing datasets...")
+        self.train = BertDataset(
+            os.path.join(path, 'train.json'),
+            self.tokenizer,
+            max_length,
+            test_mode=False,
+            label2idx=self.label2idx
+        )
+        self.valid = BertDataset(
+            os.path.join(path, 'dev.json'),
+            self.tokenizer,
+            max_length,
+            test_mode=False,
+            label2idx=self.label2idx
+        )
+        self.test = BertDataset(
+            os.path.join(path, 'test.json'),
+            self.tokenizer,
+            max_length,
+            test_mode=True,
+            label2idx=self.label2idx
+        )
+        
+        print(f"Train: {len(self.train)}, Valid: {len(self.valid)}, Test: {len(self.test)}")
+    
+    def save_preprocessed(self, save_path):
+        """
+        保存预处理后的 BERT 数据
+        """
+        data = {
+            'label2idx': self.label2idx,
+            'idx2label': self.idx2label,
+            'max_length': self.max_length,
+            'train': self.train,
+            'valid': self.valid,
+            'test': self.test
+        }
+        with open(save_path, 'wb') as f:
+            pickle.dump(data, f)
+        print(f"BERT preprocessed data saved to {save_path}")
+    
+    @staticmethod
+    def load_preprocessed(load_path, bert_model_name='bert-base-chinese'):
+        """
+        加载预处理后的 BERT 数据
+        """
+        print(f"Loading BERT preprocessed data from {load_path}...")
+        with open(load_path, 'rb') as f:
+            data = pickle.load(f)
+        
+        corpus = object.__new__(BertCorpus)
+        corpus.label2idx = data['label2idx']
+        corpus.idx2label = data['idx2label']
+        corpus.max_length = data['max_length']
+        corpus.train = data['train']
+        corpus.valid = data['valid']
+        corpus.test = data['test']
+        corpus.tokenizer = BertTokenizer.from_pretrained(bert_model_name)
+        print("BERT preprocessed data loaded successfully!")
+        return corpus

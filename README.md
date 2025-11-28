@@ -1,9 +1,10 @@
 # 文本分类项目 - 基于深度学习的新闻分类
 
-本项目实现了基于深度学习的中文文本分类任务，使用 PyTorch 框架，支持 BiLSTM 和 Transformer 两种神经网络模型对新闻文本进行分类。
+本项目实现了基于深度学习的中文文本分类任务，使用 PyTorch 框架，支持 **BiLSTM**、**Transformer** 和 **预训练 BERT** 三种神经网络模型对新闻文本进行分类。
 
 > **项目状态**：✅ 已完成，可直接运行
 > **预训练词向量**：300维 SGNS (Skip-Gram with Negative Sampling)
+> **预训练模型**：支持 BERT-base-chinese 及轻量级变体
 
 ## 📋 项目概述
 
@@ -11,8 +12,10 @@
 
 ### 主要特性
 
+- ✅ **三种模型架构**：BiLSTM、Transformer、预训练 BERT
 - ✅ **jieba 中文分词** + 停用词过滤
 - ✅ **预训练词向量**（300维 SGNS）+ 字符级 OOV 处理
+- ✅ **预训练 BERT 模型**（支持冻结预训练层，只训练分类层）
 - ✅ **学习率自动衰减**（ReduceLROnPlateau）
 - ✅ **训练曲线可视化**（Loss 和 Accuracy 曲线图）
 - ✅ **预处理数据缓存**（加速后续训练）
@@ -24,8 +27,13 @@
 
 ```bash
 # 1. 确保数据集已准备好（放在 ./data/tnews_public/ 目录下）
-# 2. 直接运行训练脚本
+
+# 2. 运行 BiLSTM / Transformer 训练
 python Exp_Train.py
+
+# 3. 运行 BERT 训练（需要安装 transformers 库）
+pip install transformers
+python Exp_Train_BERT.py
 ```
 
 程序将自动完成训练、验证和测试，最终在 `./output/` 目录生成模型和预测结果。
@@ -42,9 +50,10 @@ python Exp_Train.py
 
 ```
 hw3/
-├── Exp_DataSet.py                                      # 数据集处理模块
-├── Exp_Model.py                                        # 模型定义模块（BiLSTM & Transformer）
-├── Exp_Train.py                                        # 训练和预测主程序
+├── Exp_DataSet.py                                      # 数据集处理模块（含 BERT 数据处理）
+├── Exp_Model.py                                        # 模型定义模块（BiLSTM, Transformer, BERT）
+├── Exp_Train.py                                        # BiLSTM/Transformer 训练主程序
+├── Exp_Train_BERT.py                                   # BERT 训练主程序
 ├── README.md                                           # 项目说明文档
 ├── stopwords.txt                                       # 停用词表
 ├── sgns.target.word-word.dynwin5.thr10.neg5.dim300.iter5  # 300维预训练词向量
@@ -55,9 +64,12 @@ hw3/
 │       ├── dev.json                                    # 验证集（~10k条）
 │       └── test.json                                   # 测试集
 └── output/                                             # 输出目录（运行时自动创建）
-    ├── model.ckpt                                      # 验证集上最优模型
-    ├── predict.json                                    # 测试集预测结果
-    ├── preprocessed_data.pkl                           # 预处理数据缓存
+    ├── model.ckpt                                      # BiLSTM/Transformer 最优模型
+    ├── bert_model.ckpt                                 # BERT 最优模型
+    ├── predict.json                                    # BiLSTM/Transformer 预测结果
+    ├── bert_predict.json                               # BERT 预测结果
+    ├── preprocessed_data.pkl                           # BiLSTM/Transformer 预处理缓存
+    ├── bert_preprocessed_data.pkl                      # BERT 预处理缓存
     ├── loss_curve.png                                  # 训练损失曲线图
     └── accuracy_curve.png                              # 准确率曲线图
 ```
@@ -91,6 +103,14 @@ hw3/
 - ✅ 停用词过滤（加载 stopwords.txt）
 - ✅ 预训练词向量加载（包含字符级 OOV 处理）
 - ✅ 预处理数据缓存（加速后续运行）
+
+#### BertCorpus 类（BERT 专用）
+
+- **功能**：使用 BERT Tokenizer 处理数据集
+- **主要方法**：
+  - `__init__()`: 加载 BERT tokenizer 并处理数据
+  - `save_preprocessed()` / `load_preprocessed()`: 缓存预处理数据
+- **输出**：返回 PyTorch Dataset 格式的数据（含 input_ids, attention_mask, token_type_ids）
 
 ### 2. Exp_Model.py - 模型定义模块
 
@@ -151,6 +171,34 @@ hw3/
 
 为 Transformer 模型提供位置编码，使模型能够感知序列中的位置信息。
 
+#### BERT_model 类
+
+基于预训练 BERT 的文本分类模型。✅ **已完成实现**
+
+**模型架构**：
+
+- **BERT 编码器**：预训练的 BERT 模型（可选择冻结参数）
+- **Dropout 层**：防止过拟合
+- **分类器**：两层 MLP `Linear(hidden_size, hidden_size) → ReLU → Dropout → Linear(hidden_size, num_classes)`
+- **输出**：分类 logits，形状为 `[batch_size, num_classes]`
+
+**分类策略**：使用 `[CLS]` token 的 pooler_output 进行分类
+
+**参数说明**：
+
+- `bert_model_name`: 预训练模型名称（默认 `bert-base-chinese`）
+- `num_classes`: 类别数量（默认15）
+- `dropout`: Dropout 比率（默认0.1）
+- `freeze_bert`: 是否冻结 BERT 预训练层（默认 True）
+
+**支持的预训练模型**：
+
+| 模型名称 | 参数量 | 速度 | 说明 |
+|---------|--------|------|------|
+| `bert-base-chinese` | 110M | 慢 | 官方中文 BERT |
+| `uer/chinese_roberta_L-6_H-768` | ~60M | 快2倍 | 6层轻量版 |
+| `uer/chinese_roberta_L-4_H-512` | ~25M | 快3倍 | 4层轻量版 |
+
 ### 3. Exp_Train.py - 训练主程序
 
 主要包含三个核心函数：
@@ -174,6 +222,16 @@ hw3/
 - 对测试集进行预测
 - 生成JSON格式的预测结果文件
 
+### 4. Exp_Train_BERT.py - BERT 训练主程序
+
+BERT 模型专用训练脚本，与 `Exp_Train.py` 功能类似，但针对 BERT 数据格式进行了适配。
+
+**主要特点**：
+
+- 使用 `BertCorpus` 加载数据（BERT tokenizer 编码）
+- 支持预处理数据缓存（`./output/bert_preprocessed_data.pkl`）
+- 输出 BERT 专用模型和预测结果
+
 ## ⚙️ 超参数配置
 
 在 `Exp_Train.py` 中的超参数设置：
@@ -186,9 +244,20 @@ hw3/
 | `num_epochs`         | 12     | 20          | 训练轮数     |
 | `lr`                 | 5e-3   | 1e-3        | 初始学习率   |
 
+在 `Exp_Train_BERT.py` 中的超参数设置：
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| `bert_model_name` | `uer/chinese_roberta_L-4_H-512` | 预训练模型名称 |
+| `max_length` | 128 | BERT 最大序列长度 |
+| `batch_size` | 16 | 批次大小（BERT 较大，需较小 batch） |
+| `num_epochs` | 5 | 训练轮数（冻结层时不需太多） |
+| `lr` | 2e-4 | 分类层学习率 |
+| `freeze_bert` | True | 是否冻结 BERT 预训练层 |
+
 **优化器配置**：
 
-- 优化器：Adam with weight_decay=5e-4
+- 优化器：Adam with weight_decay=5e-4（BiLSTM/Transformer），1e-4（BERT）
 - 学习率调度：ReduceLROnPlateau（patience=2, factor=0.5）
 - 损失函数：CrossEntropyLoss
 
@@ -197,7 +266,11 @@ hw3/
 ### 环境要求
 
 ```bash
+# 基础依赖
 pip install torch numpy tqdm jieba matplotlib
+
+# BERT 模型额外依赖
+pip install transformers
 ```
 
 **依赖包**：
@@ -208,6 +281,7 @@ pip install torch numpy tqdm jieba matplotlib
 - tqdm
 - jieba（中文分词）
 - matplotlib（训练曲线可视化）
+- transformers（BERT 模型，可选）
 
 ### 数据准备
 
@@ -283,11 +357,28 @@ model = Transformer_model(
 ).to(device)
 ```
 
+**方案3：使用 BERT 模型**：
+
+```bash
+python Exp_Train_BERT.py
+```
+
+在 `Exp_Train_BERT.py` 中可配置：
+
+```python
+bert_model_name = 'uer/chinese_roberta_L-4_H-512'  # 轻量级模型
+# 或
+bert_model_name = 'bert-base-chinese'  # 完整版（较慢）
+
+freeze_bert = True  # 冻结预训练层，只训练分类层
+```
+
 **重要提示**：
 
 - 使用Transformer时，必须确保 `d_emb % nhead == 0`
 - 对于300维词向量，推荐的 `nhead` 选项：5, 6, 10, 12, 15
 - 如使用预训练词向量，需在数据集处理时传入 `embedding_weight` 参数
+- 更换 BERT 模型后需删除旧的预处理缓存 `./output/bert_preprocessed_data.pkl`
 
 ## 📊 输出结果
 
@@ -299,8 +390,15 @@ model = Transformer_model(
 
 最终生成：
 
+**BiLSTM / Transformer**：
 - `output/model.ckpt`: 验证集上表现最好的模型
 - `output/predict.json`: 测试集预测结果
+
+**BERT**：
+- `output/bert_model.ckpt`: 验证集上表现最好的 BERT 模型
+- `output/bert_predict.json`: BERT 测试集预测结果
+- `output/bert_loss_curve.png`: BERT 训练损失曲线
+- `output/bert_accuracy_curve.png`: BERT 准确率曲线
 
 ## 🔧 预训练词向量说明
 
@@ -383,12 +481,13 @@ model = BiLSTM_model(
 
 ### 已实现功能
 
-- ✅ **完整的模型实现**：BiLSTM 和 Transformer 均已实现分类器
+- ✅ **完整的模型实现**：BiLSTM、Transformer、BERT 均已实现
 - ✅ **模块化设计**：数据处理、模型定义、训练分离
 - ✅ **GPU 加速**：自动检测并使用 CUDA
-- ✅ **双模型支持**：可轻松切换 BiLSTM 和 Transformer
+- ✅ **三模型支持**：可轻松切换 BiLSTM、Transformer 和 BERT
 - ✅ **自动模型选择**：保存验证集上表现最好的模型
 - ✅ **预训练词向量**：300维 SGNS + 字符级 OOV fallback
+- ✅ **预训练 BERT**：支持冻结预训练层，只训练分类层
 - ✅ **实时进度显示**：tqdm 进度条显示训练状态
 - ✅ **训练曲线可视化**：Loss 和 Accuracy 曲线图
 - ✅ **学习率自动衰减**：ReduceLROnPlateau
@@ -398,6 +497,7 @@ model = BiLSTM_model(
 
 - **BiLSTM**：平均池化 + Padding Mask
 - **Transformer**：平均池化 + Padding Mask + src_key_padding_mask
+- **BERT**：[CLS] pooler_output + 两层 MLP 分类头 + 可冻结预训练层
 - **自动获取类别数**：无需手动指定分类数量
 - **灵活的超参数配置**：集中管理，易于调整
 
@@ -430,6 +530,15 @@ A: 确保 `d_emb % nhead == 0`，对于 300 维，推荐 `nhead=6`
 
 **Q: GPU 内存不足？**
 A: 减小 `batch_size` 或减少模型层数（`nlayers`）
+
+**Q: 如何使用 BERT 模型？**
+A: 运行 `python Exp_Train_BERT.py`，首次运行会自动下载预训练模型
+
+**Q: BERT 下载模型报错 401 Unauthorized？**
+A: 部分模型（如 hfl 系列）需要登录 Hugging Face。建议使用免登录模型如 `bert-base-chinese` 或 `uer/chinese_roberta_L-4_H-512`
+
+**Q: 更换 BERT 模型后报错？**
+A: 需要删除旧的预处理缓存文件 `./output/bert_preprocessed_data.pkl`
 
 ## 📄 License
 

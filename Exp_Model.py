@@ -1,6 +1,7 @@
 import torch.nn as nn
 import torch as torch
 import math
+from transformers import BertModel
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.1, max_len=5000):
@@ -102,3 +103,57 @@ class BiLSTM_model(nn.Module):
 
         #------------------------------------------------------end------------------------------------------------------#
         return x
+
+
+class BERT_model(nn.Module):
+    """
+    基于预训练 BERT 的文本分类模型。
+    冻结 BERT 预训练层，只训练分类层。
+    """
+    def __init__(self, bert_model_name='bert-base-chinese', num_classes=15, dropout=0.1, freeze_bert=True):
+        super(BERT_model, self).__init__()
+        
+        # 加载预训练 BERT 模型
+        self.bert = BertModel.from_pretrained(bert_model_name)
+        
+        # 冻结 BERT 预训练层的参数
+        if freeze_bert:
+            for param in self.bert.parameters():
+                param.requires_grad = False
+        
+        # 获取 BERT 隐藏层维度
+        hidden_size = self.bert.config.hidden_size  # 768 for bert-base
+        
+        # 分类层（只训练这一部分）
+        self.dropout = nn.Dropout(dropout)
+        self.classifier = nn.Sequential(
+                    nn.Linear(hidden_size, hidden_size),
+                    nn.ReLU(),
+                    nn.Dropout(dropout),
+                    nn.Linear(hidden_size, num_classes)
+                )
+    
+    def forward(self, input_ids, attention_mask=None, token_type_ids=None):
+        """
+        Args:
+            input_ids: [batch_size, seq_len] - token IDs
+            attention_mask: [batch_size, seq_len] - 1 for real tokens, 0 for padding
+            token_type_ids: [batch_size, seq_len] - segment IDs (optional)
+        Returns:
+            logits: [batch_size, num_classes]
+        """
+        # BERT 输出
+        outputs = self.bert(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            token_type_ids=token_type_ids
+        )
+        
+        # 使用 [CLS] token 的输出作为句子表示
+        pooled_output = outputs.pooler_output
+        
+        # 分类
+        x = self.dropout(pooled_output)
+        logits = self.classifier(x)
+        
+        return logits
